@@ -276,6 +276,7 @@
         // 初始化 3D 翻頁書
         async function initFlipBook() {
             const loadingIndicator = document.getElementById('loadingIndicator');
+            const flipbookViewport = document.getElementById('flipbook-viewport');
             const flipbookEl = document.getElementById('flipbook');
             
             // 清理舊的實例
@@ -296,31 +297,36 @@
                 currentPdfDoc = await loadingTask.promise;
                 const numPages = currentPdfDoc.numPages;
 
-                // 【關鍵修正 1】先取得第一頁的實際長寬比例，判斷是直式還是橫式
+                // 【關鍵修正 1】取得第一頁的實際長寬比例
                 const firstPage = await currentPdfDoc.getPage(1);
                 const baseViewport = firstPage.getViewport({ scale: 1.0 });
                 const pdfWidth = baseViewport.width;
                 const pdfHeight = baseViewport.height;
+
+                // 【關鍵修正 2】精準計算畫面的安全高度限制
+                // 取得外層容器的高度，並扣除一些安全邊距(例如下方和上方原本設定的 pb-6 和 pt-2)
+                const containerRect = flipbookViewport.parentElement.getBoundingClientRect();
+                const safeHeight = Math.max(containerRect.height - 60, 300); // 確保最小也有 300px 高度
 
                 // 動態產生對應數量的空白頁面 div
                 for(let i = 1; i <= numPages; i++) {
                     const pageDiv = document.createElement('div');
                     pageDiv.className = 'my-page bg-white flex items-center justify-center relative';
                     pageDiv.dataset.page = i;
-                    // 使用 object-contain 確保畫布不會變形
+                    // 使用 object-contain 確保畫布內容絕對不會變形或超出
                     pageDiv.innerHTML = '<div class="absolute text-gray-300"><i class="fa-solid fa-circle-notch fa-spin text-3xl"></i></div><canvas class="w-full h-full object-contain relative z-10"></canvas>';
                     flipbookEl.appendChild(pageDiv);
                 }
 
                 // 初始化 PageFlip 引擎
                 pageFlipInstance = new St.PageFlip(flipbookEl, {
-                    width: pdfWidth,     // 動態帶入該 PDF 的真實寬度
-                    height: pdfHeight,   // 動態帶入該 PDF 的真實高度
-                    size: "stretch",     // 【關鍵修正】因套件不支援 fit，我們改回 stretch。由於上面已經帶入了真實寬高，所以不會被裁切！
-                    minWidth: 200,       // 放寬最小限制，避免小螢幕上錯誤
-                    maxWidth: 3000,      // 放寬最大限制，容納橫式高清 PDF
+                    width: pdfWidth,     
+                    height: pdfHeight,   
+                    size: "stretch",     
+                    minWidth: 200,       
+                    maxWidth: 3000,      // 放寬寬度限制，交給 stretch 自動計算
                     minHeight: 200,
-                    maxHeight: 3000,
+                    maxHeight: safeHeight, // 【核心關鍵 3】設定高度天花板，絕對不超過目前螢幕的高度！
                     showCover: true,
                     mobileScrollSupport: false, 
                     maxShadowOpacity: 0.3
