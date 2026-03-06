@@ -185,8 +185,8 @@
             </div>
         </div>
         
-        <!-- PDF 顯示區域 -->
-        <div class="flex-grow w-full relative overflow-hidden flex items-center justify-center bg-gray-800">
+        <!-- PDF 顯示區域 (加入 min-height: 0 避免彈性容器撐爆) -->
+        <div class="flex-grow w-full relative overflow-hidden flex items-center justify-center bg-gray-800" style="min-height: 0;">
             <!-- 載入動畫 (改為覆蓋在上方，確保底層容器有寬高) -->
             <div id="loadingIndicator" class="absolute inset-0 flex flex-col items-center justify-center text-white z-20 bg-gray-800 transition-opacity duration-300">
                 <i class="fa-solid fa-circle-notch fa-spin text-4xl text-blue-500 mb-4"></i>
@@ -195,7 +195,7 @@
             </div>
             
             <!-- 3D 翻書區域 -->
-            <div id="flipbook-viewport" class="w-full h-full flex justify-center items-center pb-6 pt-2" style="display: none;">
+            <div id="flipbook-viewport" class="w-full h-full flex justify-center items-center py-6" style="display: none;">
                 <div id="flipbook"></div>
             </div>
 
@@ -303,10 +303,11 @@
                 const pdfWidth = baseViewport.width;
                 const pdfHeight = baseViewport.height;
 
-                // 【關鍵修正 2】精準計算畫面的安全高度限制
-                // 取得外層容器的高度，並扣除一些安全邊距(例如下方和上方原本設定的 pb-6 和 pt-2)
+                // 【關鍵修正 2】精準計算畫面的安全寬度與高度限制
+                // 取得外層容器的空間，並強制預留至少上下各 40px 的安全距離 (共 80px)
                 const containerRect = flipbookViewport.parentElement.getBoundingClientRect();
-                const safeHeight = Math.max(containerRect.height - 60, 300); // 確保最小也有 300px 高度
+                const safeHeight = Math.max(containerRect.height - 80, 200); 
+                const safeWidth = Math.max(containerRect.width - 40, 200); 
 
                 // 動態產生對應數量的空白頁面 div
                 for(let i = 1; i <= numPages; i++) {
@@ -324,9 +325,9 @@
                     height: pdfHeight,   
                     size: "stretch",     
                     minWidth: 200,       
-                    maxWidth: 3000,      // 放寬寬度限制，交給 stretch 自動計算
+                    maxWidth: safeWidth,   // 【防裁切核心】嚴格限制書本絕對不能寬於此數值
                     minHeight: 200,
-                    maxHeight: safeHeight, // 【核心關鍵 3】設定高度天花板，絕對不超過目前螢幕的高度！
+                    maxHeight: safeHeight, // 【防裁切核心】嚴格限制書本絕對不能高於此數值 (保證不撞標題欄)
                     showCover: true,
                     mobileScrollSupport: false, 
                     maxShadowOpacity: 0.3
