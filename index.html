@@ -38,7 +38,7 @@
             background-color: white;
             border: solid 1px #e5e7eb;
             overflow: hidden;
-            box-sizing: border-box; /* 確保邊框不會擠壓到內容 */
+            box-sizing: border-box; 
         }
         .my-page.--left {
             border-right: 0;
@@ -53,7 +53,7 @@
 <body class="bg-gray-50 text-gray-800 font-sans antialiased min-h-screen flex flex-col">
 
     <!-- 頁首 Header -->
-    <header class="bg-white shadow-sm sticky top-0 z-40">
+    <header class="bg-white shadow-sm sticky top-0 z-40 relative">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between">
             <div class="flex items-center gap-3">
                 <i class="fa-solid fa-school text-blue-600 text-3xl"></i>
@@ -166,7 +166,7 @@
     <!-- 電子書閱讀器 Modal (彈出視窗) -->
     <div id="bookModal" class="fixed inset-0 z-50 hidden bg-gray-900 bg-opacity-95 flex flex-col transition-opacity duration-300 opacity-0">
         <!-- Modal 頂部控制列 -->
-        <div class="h-16 bg-gray-900 text-white flex justify-between items-center px-4 md:px-6 shadow-md border-b border-gray-700 shrink-0">
+        <div class="h-16 bg-gray-900 text-white flex justify-between items-center px-4 md:px-6 shadow-md border-b border-gray-700 shrink-0 relative z-50">
             <div class="flex items-center gap-3">
                 <i class="fa-solid fa-book text-blue-400"></i>
                 <h2 id="modalTitle" class="font-bold text-lg md:text-xl tracking-wide">載入中...</h2>
@@ -185,18 +185,39 @@
             </div>
         </div>
         
-        <!-- PDF 顯示區域 (加入 min-height: 0 避免彈性容器撐爆) -->
-        <div class="flex-grow w-full relative overflow-hidden flex items-center justify-center bg-gray-800" style="min-height: 0;">
-            <!-- 載入動畫 (改為覆蓋在上方，確保底層容器有寬高) -->
+        <!-- PDF 顯示區域 -->
+        <div class="flex-grow w-full relative overflow-hidden flex flex-col bg-gray-800" style="min-height: 0;">
+            
+            <!-- 載入動畫 -->
             <div id="loadingIndicator" class="absolute inset-0 flex flex-col items-center justify-center text-white z-20 bg-gray-800 transition-opacity duration-300">
                 <i class="fa-solid fa-circle-notch fa-spin text-4xl text-blue-500 mb-4"></i>
                 <p id="loadingText" class="text-lg">正在載入 3D 翻頁特效...</p>
                 <p class="text-xs text-gray-400 mt-2 text-center px-4">若遲遲未顯示，請點擊上方切換為「一般捲動」模式</p>
             </div>
             
-            <!-- 3D 翻書區域 -->
-            <div id="flipbook-viewport" class="w-full h-full flex justify-center items-center py-6" style="display: none;">
-                <div id="flipbook"></div>
+            <!-- 放大縮小控制列 (Zoom Controls) -->
+            <div id="zoomControls" class="absolute bottom-6 left-1/2 transform -translate-x-1/2 z-40 flex items-center gap-2 bg-gray-900 bg-opacity-90 border border-gray-600 px-4 py-2 rounded-full shadow-2xl hidden">
+                <button onclick="zoomOut()" class="text-white hover:text-blue-400 w-8 h-8 flex items-center justify-center rounded-full bg-gray-700 hover:bg-gray-600 transition" title="縮小">
+                    <i class="fa-solid fa-minus"></i>
+                </button>
+                <span id="zoomPercentage" class="text-white text-sm font-bold w-14 text-center">100%</span>
+                <button onclick="zoomIn()" class="text-white hover:text-blue-400 w-8 h-8 flex items-center justify-center rounded-full bg-gray-700 hover:bg-gray-600 transition" title="放大">
+                    <i class="fa-solid fa-plus"></i>
+                </button>
+                <div class="w-px h-6 bg-gray-600 mx-1"></div>
+                <button onclick="resetZoom()" class="text-white hover:text-blue-400 px-3 py-1 text-sm rounded-full bg-gray-700 hover:bg-gray-600 transition">
+                    還原
+                </button>
+            </div>
+
+            <!-- 3D 翻書區域 (支援捲軸) -->
+            <!-- 這裡我們讓 viewport 可以 overflow-auto，這樣放大時就會出現捲軸 -->
+            <div id="flipbook-viewport" class="w-full h-full overflow-auto relative" style="display: none;">
+                <!-- Wrapper 用來負責書本居中與放大時的空間擴充 -->
+                <div id="flipbook-wrapper" class="w-full min-h-full flex justify-center items-center transition-all duration-300 relative">
+                    <!-- 書本本體 (設定 origin-top 讓放大時向下長，方便捲動) -->
+                    <div id="flipbook" class="transition-transform duration-300 origin-top shadow-2xl z-10 relative"></div>
+                </div>
             </div>
 
             <!-- 一般捲動區域 -->
@@ -219,6 +240,12 @@
         let currentPdfPath = '';
         let pageFlipInstance = null;
         let currentPdfDoc = null;
+        
+        // 放大縮小相關變數
+        let currentZoom = 1;
+        const ZOOM_STEP = 0.25; // 每次縮放 25%
+        const MAX_ZOOM = 3.0;   // 最大放大 300%
+        const MIN_ZOOM = 0.5;   // 最小縮小 50%
 
         // 打開電子書
         function openBook(pdfFileName, title) {
@@ -230,6 +257,7 @@
             setTimeout(() => modal.classList.remove('opacity-0'), 10);
             body.style.overflow = 'hidden';
 
+            resetZoom(); // 打開時預設 100%
             loadCurrentMode();
         }
 
@@ -242,6 +270,7 @@
             } else {
                 btn.innerHTML = '<i class="fa-solid fa-book-open"></i> <span class="hidden sm:inline">切換3D翻頁</span>';
             }
+            resetZoom();
             loadCurrentMode();
         }
 
@@ -250,6 +279,7 @@
             const loadingIndicator = document.getElementById('loadingIndicator');
             const flipbookViewport = document.getElementById('flipbook-viewport');
             const pdfViewer = document.getElementById('pdfViewer');
+            const zoomControls = document.getElementById('zoomControls');
             
             // 重置載入畫面
             loadingIndicator.style.display = 'flex';
@@ -260,18 +290,75 @@
             `;
 
             if (currentMode === 'flip') {
-                // 確保 flipbookViewport 是顯示狀態，否則 PageFlip 抓不到寬高會當機！
-                flipbookViewport.style.display = 'flex';
+                flipbookViewport.style.display = 'block';
                 pdfViewer.style.display = 'none';
+                zoomControls.classList.remove('hidden'); // 顯示縮放面板
                 pdfViewer.src = '';
                 initFlipBook();
             } else {
                 flipbookViewport.style.display = 'none';
                 loadingIndicator.style.display = 'none';
                 pdfViewer.style.display = 'block';
+                zoomControls.classList.add('hidden'); // 隱藏縮放面板
                 pdfViewer.src = currentPdfPath + '#toolbar=0';
             }
         }
+
+        // --- 放大縮小功能區塊 ---
+        function zoomIn() {
+            if (currentZoom < MAX_ZOOM) {
+                currentZoom += ZOOM_STEP;
+                applyZoom();
+            }
+        }
+
+        function zoomOut() {
+            if (currentZoom > MIN_ZOOM) {
+                currentZoom -= ZOOM_STEP;
+                applyZoom();
+            }
+        }
+
+        function resetZoom() {
+            currentZoom = 1;
+            applyZoom();
+        }
+
+        function applyZoom() {
+            const flipbook = document.getElementById('flipbook');
+            const wrapper = document.getElementById('flipbook-wrapper');
+            const pctText = document.getElementById('zoomPercentage');
+            
+            if(!flipbook) return;
+
+            // 更新顯示百分比
+            pctText.textContent = Math.round(currentZoom * 100) + '%';
+            
+            // 執行 CSS 縮放
+            flipbook.style.transform = `scale(${currentZoom})`;
+
+            if (currentZoom > 1) {
+                // 當放大時，為了讓捲軸正常運作，我們需要把外圍容器的排版方式改變
+                wrapper.classList.remove('items-center');
+                wrapper.classList.add('items-start');
+                wrapper.style.paddingTop = '60px'; // 讓頂部預留空間方便看
+                wrapper.style.paddingBottom = '100px'; 
+                
+                // 動態取得縮放後的真實尺寸，撐開外圍 wrapper 以觸發原生捲軸
+                const rect = flipbook.getBoundingClientRect();
+                wrapper.style.minWidth = (rect.width + 120) + 'px'; // 左右預留邊距
+                wrapper.style.minHeight = (rect.height + 160) + 'px'; 
+            } else {
+                // 恢復為預設的置中顯示
+                wrapper.classList.remove('items-start');
+                wrapper.classList.add('items-center');
+                wrapper.style.paddingTop = '0';
+                wrapper.style.paddingBottom = '0';
+                wrapper.style.minWidth = '100%';
+                wrapper.style.minHeight = '100%';
+            }
+        }
+        // -----------------------
 
         // 初始化 3D 翻頁書
         async function initFlipBook() {
@@ -287,7 +374,7 @@
             flipbookEl.innerHTML = ''; 
 
             try {
-                // 讀取 PDF (加入中文字體庫 cMapUrl 支援，並使用 encodeURI 處理中文檔名)
+                // 讀取 PDF (加入中文字體庫支援)
                 const loadingTask = pdfjsLib.getDocument({
                     url: encodeURI(currentPdfPath),
                     cMapUrl: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/cmaps/',
@@ -297,24 +384,24 @@
                 currentPdfDoc = await loadingTask.promise;
                 const numPages = currentPdfDoc.numPages;
 
-                // 【關鍵修正 1】取得第一頁的實際長寬比例
+                // 取得第一頁比例
                 const firstPage = await currentPdfDoc.getPage(1);
                 const baseViewport = firstPage.getViewport({ scale: 1.0 });
                 const pdfWidth = baseViewport.width;
                 const pdfHeight = baseViewport.height;
 
-                // 【關鍵修正 2】精準計算畫面的安全寬度與高度限制
-                // 取得外層容器的空間，並強制預留至少上下各 40px 的安全距離 (共 80px)
+                // 【關鍵修正：終極防裁切】
+                // 取得外層容器的空間，預留「超大」的安全距離，保證絕對不會撞到標題列
                 const containerRect = flipbookViewport.parentElement.getBoundingClientRect();
-                const safeHeight = Math.max(containerRect.height - 80, 200); 
-                const safeWidth = Math.max(containerRect.width - 40, 200); 
+                // 扣除 120px 的高度作為上下安全區 (原本是 80px)
+                const safeHeight = Math.max(containerRect.height - 120, 300); 
+                const safeWidth = Math.max(containerRect.width - 60, 300); 
 
                 // 動態產生對應數量的空白頁面 div
                 for(let i = 1; i <= numPages; i++) {
                     const pageDiv = document.createElement('div');
                     pageDiv.className = 'my-page bg-white flex items-center justify-center relative';
                     pageDiv.dataset.page = i;
-                    // 使用 object-contain 確保畫布內容絕對不會變形或超出
                     pageDiv.innerHTML = '<div class="absolute text-gray-300"><i class="fa-solid fa-circle-notch fa-spin text-3xl"></i></div><canvas class="w-full h-full object-contain relative z-10"></canvas>';
                     flipbookEl.appendChild(pageDiv);
                 }
@@ -325,9 +412,9 @@
                     height: pdfHeight,   
                     size: "stretch",     
                     minWidth: 200,       
-                    maxWidth: safeWidth,   // 【防裁切核心】嚴格限制書本絕對不能寬於此數值
+                    maxWidth: safeWidth,   // 嚴格限制最大寬度
                     minHeight: 200,
-                    maxHeight: safeHeight, // 【防裁切核心】嚴格限制書本絕對不能高於此數值 (保證不撞標題欄)
+                    maxHeight: safeHeight, // 嚴格限制最大高度 (防止撞到上方 Header)
                     showCover: true,
                     mobileScrollSupport: false, 
                     maxShadowOpacity: 0.3
@@ -342,7 +429,8 @@
                     
                     try {
                         const page = await currentPdfDoc.getPage(pageNum);
-                        const viewport = page.getViewport({ scale: 2.0 }); // 高解析度
+                        // 提高畫布解析度至 2.5 倍，確保放大觀看時依然超級清晰！
+                        const viewport = page.getViewport({ scale: 2.5 }); 
                         
                         const pageEl = document.querySelector(`.my-page[data-page="${pageNum}"]`);
                         if(!pageEl) return;
@@ -381,7 +469,6 @@
 
             } catch (err) {
                 console.error("PDF/Flipbook Error:", err);
-                // 發生錯誤時，將錯誤代碼印在畫面上
                 loadingIndicator.innerHTML = `
                     <i class="fa-solid fa-triangle-exclamation text-4xl text-red-500 mb-4"></i>
                     <p class="text-lg font-bold text-red-200">3D 翻頁模式載入失敗</p>
