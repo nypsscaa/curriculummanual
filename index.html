@@ -61,7 +61,7 @@
                     <p class="text-sm text-gray-500">澎海望潮子 鳥嶼愛思客</p>
                 </div>
             </div>
-            <a href="https://github.com" target="_blank" class="text-gray-400 hover:text-gray-900 transition" title="前往 GitHub">
+            <a href="https://github.com/nypsscaa/curriculummanual" target="_blank" class="text-gray-400 hover:text-gray-900 transition" title="前往 GitHub">
                 <i class="fa-brands fa-github text-2xl"></i>
             </a>
         </div>
@@ -186,20 +186,20 @@
         
         <!-- PDF 顯示區域 -->
         <div class="flex-grow w-full relative overflow-hidden flex items-center justify-center bg-gray-800">
-            <!-- 載入動畫 -->
-            <div id="loadingIndicator" class="absolute inset-0 flex flex-col items-center justify-center text-white z-20 bg-gray-800 bg-opacity-90">
+            <!-- 載入動畫 (改為覆蓋在上方，確保底層容器有寬高) -->
+            <div id="loadingIndicator" class="absolute inset-0 flex flex-col items-center justify-center text-white z-20 bg-gray-800 transition-opacity duration-300">
                 <i class="fa-solid fa-circle-notch fa-spin text-4xl text-blue-500 mb-4"></i>
-                <p id="loadingText">正在載入 3D 翻頁特效...</p>
-                <p class="text-xs text-gray-400 mt-2 text-center px-4">若遲遲未顯示，請點擊上方切換為「一般捲動」模式<br>或注意是否在 GitHub 環境下開啟</p>
+                <p id="loadingText" class="text-lg">正在載入 3D 翻頁特效...</p>
+                <p class="text-xs text-gray-400 mt-2 text-center px-4">若遲遲未顯示，請點擊上方切換為「一般捲動」模式</p>
             </div>
             
             <!-- 3D 翻書區域 -->
-            <div id="flipbook-viewport" class="w-full h-full flex justify-center items-center overflow-hidden hidden pb-6 pt-2">
+            <div id="flipbook-viewport" class="w-full h-full flex justify-center items-center pb-6 pt-2" style="display: none;">
                 <div id="flipbook"></div>
             </div>
 
-            <!-- 一般捲動區域 (iframe fallback) -->
-            <iframe id="pdfViewer" src="" class="w-full h-full relative z-10 border-0 bg-white hidden" title="PDF Viewer"></iframe>
+            <!-- 一般捲動區域 -->
+            <iframe id="pdfViewer" src="" class="w-full h-full relative z-10 border-0 bg-white" style="display: none;" title="PDF Viewer"></iframe>
         </div>
     </div>
 
@@ -214,7 +214,7 @@
         const modalTitle = document.getElementById('modalTitle');
         const body = document.body;
 
-        let currentMode = 'flip'; // 預設使用 3D 翻頁 ('flip' 或 'scroll')
+        let currentMode = 'flip'; // 預設使用 3D 翻頁
         let currentPdfPath = '';
         let pageFlipInstance = null;
         let currentPdfDoc = null;
@@ -249,19 +249,25 @@
             const loadingIndicator = document.getElementById('loadingIndicator');
             const flipbookViewport = document.getElementById('flipbook-viewport');
             const pdfViewer = document.getElementById('pdfViewer');
-            const loadingText = document.getElementById('loadingText');
             
-            loadingIndicator.classList.remove('hidden');
-            flipbookViewport.classList.add('hidden');
-            pdfViewer.classList.add('hidden');
-            pdfViewer.src = ''; // 停止 iframe
+            // 重置載入畫面
+            loadingIndicator.style.display = 'flex';
+            loadingIndicator.innerHTML = `
+                <i class="fa-solid fa-circle-notch fa-spin text-4xl text-blue-500 mb-4"></i>
+                <p class="text-lg">正在載入 3D 翻頁特效...</p>
+                <p class="text-xs text-gray-400 mt-2 text-center px-4">處理高畫質圖層中，請稍候...<br>若遲遲未顯示，請點擊右上角切換為「一般捲動」</p>
+            `;
 
             if (currentMode === 'flip') {
-                loadingText.textContent = "正在載入 3D 翻頁特效...";
+                // 確保 flipbookViewport 是顯示狀態，否則 PageFlip 抓不到寬高會當機！
+                flipbookViewport.style.display = 'flex';
+                pdfViewer.style.display = 'none';
+                pdfViewer.src = '';
                 initFlipBook();
             } else {
-                loadingIndicator.classList.add('hidden');
-                pdfViewer.classList.remove('hidden');
+                flipbookViewport.style.display = 'none';
+                loadingIndicator.style.display = 'none';
+                pdfViewer.style.display = 'block';
                 pdfViewer.src = currentPdfPath + '#toolbar=0';
             }
         }
@@ -269,7 +275,6 @@
         // 初始化 3D 翻頁書
         async function initFlipBook() {
             const loadingIndicator = document.getElementById('loadingIndicator');
-            const flipbookViewport = document.getElementById('flipbook-viewport');
             const flipbookEl = document.getElementById('flipbook');
             
             // 清理舊的實例
@@ -280,8 +285,14 @@
             flipbookEl.innerHTML = ''; 
 
             try {
-                // 讀取 PDF 檔案資訊
-                currentPdfDoc = await pdfjsLib.getDocument(currentPdfPath).promise;
+                // 讀取 PDF (加入中文字體庫 cMapUrl 支援，並使用 encodeURI 處理中文檔名)
+                const loadingTask = pdfjsLib.getDocument({
+                    url: encodeURI(currentPdfPath),
+                    cMapUrl: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/cmaps/',
+                    cMapPacked: true
+                });
+
+                currentPdfDoc = await loadingTask.promise;
                 const numPages = currentPdfDoc.numPages;
 
                 // 動態產生對應數量的空白頁面 div
@@ -289,14 +300,13 @@
                     const pageDiv = document.createElement('div');
                     pageDiv.className = 'my-page bg-white flex items-center justify-center relative';
                     pageDiv.dataset.page = i;
-                    // 加入一個轉圈圈的 loading 圖示，等 canvas 畫好後隱藏
                     pageDiv.innerHTML = '<div class="absolute text-gray-300"><i class="fa-solid fa-circle-notch fa-spin text-3xl"></i></div><canvas class="w-full h-full relative z-10"></canvas>';
                     flipbookEl.appendChild(pageDiv);
                 }
 
                 // 初始化 PageFlip 引擎
                 pageFlipInstance = new St.PageFlip(flipbookEl, {
-                    width: 420,  // 基本寬度比例 (A4比例)
+                    width: 420,  // 基本寬度比例
                     height: 594, // 基本高度比例
                     size: "stretch",
                     minWidth: 300,
@@ -304,13 +314,12 @@
                     minHeight: 400,
                     maxHeight: 1400,
                     showCover: true,
-                    mobileScrollSupport: false, // 關閉才不會與滑動衝突
+                    mobileScrollSupport: false, 
                     maxShadowOpacity: 0.3
                 });
 
                 pageFlipInstance.loadFromHTML(document.querySelectorAll('.my-page'));
 
-                // 為了避免記憶體爆炸，我們只在「翻到那一頁」時才將 PDF 畫到 Canvas 上 (延遲載入)
                 const renderedPages = new Set();
                 async function renderPage(pageNum) {
                     if (pageNum < 1 || pageNum > numPages || renderedPages.has(pageNum)) return;
@@ -318,8 +327,7 @@
                     
                     try {
                         const page = await currentPdfDoc.getPage(pageNum);
-                        // 將解析度拉高至 2.0 讓文字保持清晰
-                        const viewport = page.getViewport({ scale: 2.0 }); 
+                        const viewport = page.getViewport({ scale: 2.0 }); // 高解析度
                         
                         const pageEl = document.querySelector(`.my-page[data-page="${pageNum}"]`);
                         if(!pageEl) return;
@@ -331,18 +339,17 @@
                         
                         await page.render({ canvasContext: ctx, viewport: viewport }).promise;
                         
-                        // 畫完後隱藏讀取圖示
                         const spinner = pageEl.querySelector('div');
                         if(spinner) spinner.style.display = 'none';
                     } catch(e) {
                         console.error('Error rendering page ' + pageNum, e);
-                        renderedPages.delete(pageNum); // 如果失敗允許重試
+                        renderedPages.delete(pageNum); 
                     }
                 }
 
-                // 監聽翻頁事件，預先畫好當前頁與前後一兩頁
+                // 監聽翻頁事件
                 pageFlipInstance.on('flip', (e) => {
-                    const current = e.data + 1; // e.data 是索引值從 0 開始
+                    const current = e.data + 1; 
                     renderPage(current);
                     renderPage(current + 1);
                     renderPage(current + 2);
@@ -355,17 +362,20 @@
                 await renderPage(2);
                 await renderPage(3);
 
-                loadingIndicator.classList.add('hidden');
-                flipbookViewport.classList.remove('hidden');
+                loadingIndicator.style.display = 'none'; // 隱藏載入畫面
 
             } catch (err) {
-                console.error(err);
-                // 如果因為跨域(CORS)或檔案太大導致失敗，給予提示
+                console.error("PDF/Flipbook Error:", err);
+                // 發生錯誤時，將錯誤代碼印在畫面上
                 loadingIndicator.innerHTML = `
-                    <i class="fa-solid fa-triangle-exclamation text-4xl text-yellow-500 mb-4"></i>
-                    <p class="text-lg">3D 翻頁模式載入失敗</p>
-                    <p class="text-xs text-gray-400 mt-2 text-center">原因可能是本機安全性限制或網路問題。<br>請試著切換為一般捲動模式。</p>
-                    <button onclick="toggleViewMode()" class="mt-6 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-bold shadow-lg">切換為一般捲動模式</button>
+                    <i class="fa-solid fa-triangle-exclamation text-4xl text-red-500 mb-4"></i>
+                    <p class="text-lg font-bold text-red-200">3D 翻頁模式載入失敗</p>
+                    <div class="mt-4 p-3 bg-gray-900 rounded border border-red-800 max-w-md w-full text-left">
+                        <p class="text-xs text-gray-400 mb-1">技術錯誤代碼 (請拍照給工程師)：</p>
+                        <p class="text-sm text-red-400 font-mono break-all">${err.message || JSON.stringify(err)}</p>
+                    </div>
+                    <p class="text-sm text-gray-300 mt-4 text-center">可能是檔案名稱不符、檔案太大或瀏覽器不支援。<br>請點擊下方按鈕切換觀看模式。</p>
+                    <button onclick="toggleViewMode()" class="mt-6 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-bold shadow-lg">切換為一般捲動模式</button>
                 `;
             }
         }
@@ -378,7 +388,6 @@
                 document.getElementById('pdfViewer').src = ''; 
                 body.style.overflow = 'auto'; 
                 
-                // 釋放 3D 翻頁的記憶體
                 if(pageFlipInstance) {
                     pageFlipInstance.destroy();
                     pageFlipInstance = null;
